@@ -77,64 +77,50 @@ def analyze_image(image_bytes: bytes, mime_type: str) -> str:
 def run_crew(raw_input: str) -> str:
     my_llm = LLM(model=f"gemini/{MODEL_NAME}", api_key=api_key)
 
-    story_agent = Agent(
-        role="متخصص تولید محتوای استوری اینستاگرام",
-        goal="تولید متن‌های کوتاه، صمیمی و تعاملی برای استوری با استفاده از اطلاعات خام.",
-        backstory="تو یک ادمین حرفه‌ای اینستاگرام هستی که می‌دانی چطور مخاطب را در استوری درگیر کنی.",
+    # به‌جای ۳ ایجنت جدا (استوری/ریلز/اسلایدی) که هر کدام یک درخواست API جدا مصرف می‌کردند،
+    # این ۳ نقش را در یک ایجنت واحد ادغام کرده‌ایم تا مصرف سهمیه‌ی روزانه‌ی Gemini کمتر شود.
+    content_agent = Agent(
+        role="استراتژیست محتوای اینستاگرام (استوری + ریلز + اسلایدی)",
+        goal="تولید هم‌زمان محتوای استوری، ریلز و پست اسلایدی از روی یک ورودی خام، هرکدام با کیفیت تخصصی خودش.",
+        backstory=(
+            "تو یک تیم یک‌نفره‌ی حرفه‌ای اینستاگرام هستی که هم‌زمان تسلط کامل روی نوشتن استوری صمیمی، "
+            "سناریوی پرقلاب ریلز، و طراحی پست اسلایدی آموزشی داری."
+        ),
         allow_delegation=False,
         llm=my_llm,
-        max_retry_limit=3,
-    )
-    reels_agent = Agent(
-        role="سناریونویس ریلز اینستاگرام",
-        goal="نوشتن سناریوهای پرشتاب با قلاب (Hook) جذاب برای ۳ ثانیه اول ویدیوهای ریلز.",
-        backstory="تو یک کارگردان و کپی‌رایتر شبکه‌های اجتماعی هستی که تخصصت نگه‌داشتن مخاطب است.",
-        allow_delegation=False,
-        llm=my_llm,
-        max_retry_limit=3,
-    )
-    carousel_agent = Agent(
-        role="طراح پست‌های اسلایدی",
-        goal="خرد کردن اطلاعات محصول به تیترهای جذاب برای پست‌های چند اسلایدی.",
-        backstory="تو یک استراتژیست محتوا هستی که ویژگی‌های محصول را به اسلایدهای آموزشی تبدیل می‌کنی.",
-        allow_delegation=False,
-        llm=my_llm,
-        max_retry_limit=3,
+        max_retry_limit=1,
     )
     qa_agent = Agent(
         role="مدیر کنترل کیفیت و بازرس نهایی",
-        goal="بررسی دقیق محتوای تولید شده توسط ۳ ایجنت قبلی، اصلاح خطاهای نگارشی و تایید نهایی.",
+        goal="بررسی دقیق محتوای تولید شده، اصلاح خطاهای نگارشی و تایید نهایی.",
         backstory="تو یک سردبیر سخت‌گیر هستی. وظیفه تو این است که یک خروجی بی‌نقص تحویل دهی.",
         allow_delegation=False,
         llm=my_llm,
-        max_retry_limit=3,
+        max_retry_limit=1,
     )
 
-    task_story = Task(
-        description=f"۳ ایده متنی کوتاه برای استوری بنویس (شامل نظرسنجی و کال‌تو‌اکشن): {raw_input}",
-        expected_output="۳ متن مجزا برای استوری اینستاگرام.",
-        agent=story_agent,
-    )
-    task_reels = Task(
-        description=f"یک سناریوی ۱۵ ثانیه‌ای برای ریلز بنویس. ۳ ثانیه اول باید قلاب قوی داشته باشد: {raw_input}",
-        expected_output="سناریوی تفکیک‌شده برای ریلز به همراه کپشن.",
-        agent=reels_agent,
-    )
-    task_carousel = Task(
-        description=f"این اطلاعات را به یک پست ۵ اسلایدی تبدیل کن: {raw_input}",
-        expected_output="متن تفکیک‌شده برای ۵ اسلاید.",
-        agent=carousel_agent,
+    task_content = Task(
+        description=(
+            "با استفاده از این اطلاعات محصول، سه بخش کاملاً جدا و کامل بنویس:\n"
+            "۱) استوری: ۳ ایده متنی کوتاه برای استوری اینستاگرام (شامل نظرسنجی و کال‌تو‌اکشن)\n"
+            "۲) ریلز: یک سناریوی ۱۵ ثانیه‌ای با قلاب قوی در ۳ ثانیه اول، به‌همراه کپشن\n"
+            "۳) اسلایدی: تبدیل اطلاعات به یک پست ۵ اسلایدی با تیترهای جذاب\n\n"
+            f"اطلاعات محصول:\n{raw_input}\n\n"
+            "هر بخش را با یک عنوان مشخص (مثلاً «### استوری») جدا کن تا کاملاً از هم متمایز باشند."
+        ),
+        expected_output="سه بخش کامل و جداگانه: استوری، ریلز، و پست اسلایدی.",
+        agent=content_agent,
     )
     task_qa_review = Task(
         description="محتوای تولید‌شده را بخوان، لحن را جذاب‌تر کن و خروجی نهایی را به‌صورت دسته‌بندی‌شده تحویل بده.",
         expected_output="متن تمیز شامل: بخش استوری، ریلز و اسلایدی.",
         agent=qa_agent,
-        context=[task_story, task_reels, task_carousel],
+        context=[task_content],
     )
 
     crew = Crew(
-        agents=[story_agent, reels_agent, carousel_agent, qa_agent],
-        tasks=[task_story, task_reels, task_carousel, task_qa_review],
+        agents=[content_agent, qa_agent],
+        tasks=[task_content, task_qa_review],
         process=Process.sequential,
         verbose=False,
     )
