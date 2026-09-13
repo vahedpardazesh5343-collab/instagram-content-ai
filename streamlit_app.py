@@ -10,6 +10,14 @@ from crewai import Agent, Task, Crew, Process, LLM
 load_dotenv()  # کلید را از فایل .env می‌خواند
 
 api_key = os.environ.get("GEMINI_API_KEY")
+if not api_key:
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        api_key = None
+
+if api_key:
+    os.environ["GEMINI_API_KEY"] = api_key  # تا crewai/LLM هم بتواند آن را پیدا کند
 
 MODEL_NAME = "gemini-3.6-flash"  # اگر گوگل دوباره این مدل را عوض کرد، فقط همین خط را به‌روز کن
 
