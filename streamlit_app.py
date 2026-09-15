@@ -2,35 +2,29 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 from google import genai
-from crewai import Agent, Task, Crew, Process, LLM
 
 # ==========================================
 # تنظیمات اولیه
 # ==========================================
-load_dotenv()  # کلید را از فایل .env می‌خواند
+load_dotenv()  # کلید را از فایل .env می‌خواند (برای اجرای محلی روی لپ‌تاپ)
 
 api_key = os.environ.get("GEMINI_API_KEY")
-if not api_key:
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        api_key = None
-
-if api_key:
-    os.environ["GEMINI_API_KEY"] = api_key  # تا crewai/LLM هم بتواند آن را پیدا کند
 
 MODEL_NAME = "gemini-3.6-flash"  # اگر گوگل دوباره این مدل را عوض کرد، فقط همین خط را به‌روز کن
 
 st.set_page_config(page_title="دستیار محتوای اینستاگرام", page_icon="📸", layout="centered")
 st.title("📸 دستیار تولید محتوای اینستاگرام")
-st.caption("یک عکس از محصول بکش و رها کن و/یا توضیحاتت را بنویس تا تیم هوش مصنوعی برایت محتوا بسازد.")
+st.caption("یک عکس از محصول بکش و رها کن و/یا توضیحاتت را بنویس تا هوش مصنوعی برایت محتوا بسازد.")
 
 if not api_key:
     st.error(
-        "کلید GEMINI_API_KEY پیدا نشد. یک فایل به اسم .env در همین پوشه بساز و "
-        "این خط را داخلش بنویس:\nGEMINI_API_KEY=کلید_شما"
+        "کلید GEMINI_API_KEY پیدا نشد. اگر روی Streamlit Cloud هستی، از منوی Settings > Secrets "
+        "این خط را اضافه کن:\nGEMINI_API_KEY = \"کلید_شما\"\n\n"
+        "اگر روی لپ‌تاپ خودت اجرا می‌کنی، یک فایل به اسم .env بساز و همین خط را داخلش بنویس."
     )
     st.stop()
+
+client = genai.Client(api_key=api_key)
 
 # ==========================================
 # ورودی‌های کاربر
@@ -41,7 +35,7 @@ uploaded_image = st.file_uploader(
 )
 
 if uploaded_image is not None:
-    st.image(uploaded_image, caption="پیش‌نمایش عکس", use_container_width=True)
+    st.image(uploaded_image, caption="پیش‌نمایش عکس", width="stretch")
 
 user_text = st.text_area(
     "توضیحات یا ایده‌های خودت (اختیاری، ولی هرچه کامل‌تر باشد بهتر است)",
@@ -53,10 +47,23 @@ generate_btn = st.button("🚀 تولید محتوا", type="primary")
 
 
 # ==========================================
+# تابع کمکی: یک تماس ساده و سبک با Gemini
+# ==========================================
+def ask_gemini(system_role: str, instruction: str, raw_input: str) -> str:
+    prompt = (
+        f"نقش تو: {system_role}\n\n"
+        f"دستور: {instruction}\n\n"
+        f"اطلاعات خام محصول:\n{raw_input}\n\n"
+        "خروجی را فقط به زبان فارسی و آماده برای استفاده مستقیم بنویس، بدون مقدمه‌چینی اضافه."
+    )
+    response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
+    return response.text
+
+
+# ==========================================
 # تحلیل عکس با Gemini Vision
 # ==========================================
 def analyze_image(image_bytes: bytes, mime_type: str) -> str:
-    client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
         model=MODEL_NAME,
         contents=[
@@ -72,60 +79,44 @@ def analyze_image(image_bytes: bytes, mime_type: str) -> str:
 
 
 # ==========================================
-# تعریف و اجرای تیم ایجنت‌ها (همان منطق قبلی)
+# تولید محتوا با ۴ نقش پشت سر هم (بدون crewai، سبک و سریع)
 # ==========================================
-def run_crew(raw_input: str) -> str:
-    my_llm = LLM(model=f"gemini/{MODEL_NAME}", api_key=api_key)
+def run_content_pipeline(raw_input: str) -> str:
+    story = ask_gemini(
+        "متخصص تولید محتوای استوری اینستاگرام، یک ادمین حرفه‌ای که می‌داند چطور مخاطب را در استوری درگیر کند",
+        "۳ ایده متنی کوتاه، صمیمی و تعاملی برای استوری بنویس (شامل نظرسنجی و کال‌تو‌اکشن).",
+        raw_input,
+    )
 
-    # به‌جای ۳ ایجنت جدا (استوری/ریلز/اسلایدی) که هر کدام یک درخواست API جدا مصرف می‌کردند،
-    # این ۳ نقش را در یک ایجنت واحد ادغام کرده‌ایم تا مصرف سهمیه‌ی روزانه‌ی Gemini کمتر شود.
-    content_agent = Agent(
-        role="استراتژیست محتوای اینستاگرام (استوری + ریلز + اسلایدی)",
-        goal="تولید هم‌زمان محتوای استوری، ریلز و پست اسلایدی از روی یک ورودی خام، هرکدام با کیفیت تخصصی خودش.",
-        backstory=(
-            "تو یک تیم یک‌نفره‌ی حرفه‌ای اینستاگرام هستی که هم‌زمان تسلط کامل روی نوشتن استوری صمیمی، "
-            "سناریوی پرقلاب ریلز، و طراحی پست اسلایدی آموزشی داری."
+    reels = ask_gemini(
+        "سناریونویس ریلز اینستاگرام، کارگردان و کپی‌رایتر شبکه‌های اجتماعی",
+        "یک سناریوی ۱۵ ثانیه‌ای برای ریلز بنویس. ۳ ثانیه اول باید قلاب (Hook) قوی داشته باشد، به همراه کپشن.",
+        raw_input,
+    )
+
+    carousel = ask_gemini(
+        "طراح پست‌های اسلایدی، استراتژیست محتوا",
+        "این اطلاعات را به یک پست ۵ اسلایدی با تیترهای جذاب تبدیل کن.",
+        raw_input,
+    )
+
+    combined_draft = (
+        f"### بخش استوری\n{story}\n\n"
+        f"### بخش ریلز\n{reels}\n\n"
+        f"### بخش اسلایدی\n{carousel}\n"
+    )
+
+    final_result = ask_gemini(
+        "مدیر کنترل کیفیت و سردبیر سخت‌گیر، وظیفه‌ات تحویل یک خروجی بی‌نقص است",
+        (
+            "متن زیر که توسط سه نویسنده مختلف (استوری، ریلز، اسلایدی) نوشته شده را بخوان، "
+            "خطاهای نگارشی را اصلاح کن، لحن را جذاب‌تر کن و خروجی نهایی را دقیقاً با همین سه بخش "
+            "(استوری، ریلز، اسلایدی) و همین ترتیب، تمیز و دسته‌بندی‌شده تحویل بده."
         ),
-        allow_delegation=False,
-        llm=my_llm,
-        max_retry_limit=1,
-    )
-    qa_agent = Agent(
-        role="مدیر کنترل کیفیت و بازرس نهایی",
-        goal="بررسی دقیق محتوای تولید شده، اصلاح خطاهای نگارشی و تایید نهایی.",
-        backstory="تو یک سردبیر سخت‌گیر هستی. وظیفه تو این است که یک خروجی بی‌نقص تحویل دهی.",
-        allow_delegation=False,
-        llm=my_llm,
-        max_retry_limit=1,
+        combined_draft,
     )
 
-    task_content = Task(
-        description=(
-            "با استفاده از این اطلاعات محصول، سه بخش کاملاً جدا و کامل بنویس:\n"
-            "۱) استوری: ۳ ایده متنی کوتاه برای استوری اینستاگرام (شامل نظرسنجی و کال‌تو‌اکشن)\n"
-            "۲) ریلز: یک سناریوی ۱۵ ثانیه‌ای با قلاب قوی در ۳ ثانیه اول، به‌همراه کپشن\n"
-            "۳) اسلایدی: تبدیل اطلاعات به یک پست ۵ اسلایدی با تیترهای جذاب\n\n"
-            f"اطلاعات محصول:\n{raw_input}\n\n"
-            "هر بخش را با یک عنوان مشخص (مثلاً «### استوری») جدا کن تا کاملاً از هم متمایز باشند."
-        ),
-        expected_output="سه بخش کامل و جداگانه: استوری، ریلز، و پست اسلایدی.",
-        agent=content_agent,
-    )
-    task_qa_review = Task(
-        description="محتوای تولید‌شده را بخوان، لحن را جذاب‌تر کن و خروجی نهایی را به‌صورت دسته‌بندی‌شده تحویل بده.",
-        expected_output="متن تمیز شامل: بخش استوری، ریلز و اسلایدی.",
-        agent=qa_agent,
-        context=[task_content],
-    )
-
-    crew = Crew(
-        agents=[content_agent, qa_agent],
-        tasks=[task_content, task_qa_review],
-        process=Process.sequential,
-        verbose=False,
-    )
-    result = crew.kickoff()
-    return str(result)
+    return final_result
 
 
 # ==========================================
@@ -157,9 +148,9 @@ if generate_btn:
         combined_input = "\n\n".join(combined_parts)
 
         if combined_input:
-            with st.spinner("تیم ایجنت‌ها در حال تولید محتوا هستند... ممکن است چند دقیقه طول بکشد."):
+            with st.spinner("در حال تولید محتوا... چند لحظه صبر کن."):
                 try:
-                    final_result = run_crew(combined_input)
+                    final_result = run_content_pipeline(combined_input)
                     st.subheader("✅ خروجی نهایی")
                     st.markdown(final_result)
                     st.download_button(
@@ -169,4 +160,4 @@ if generate_btn:
                         mime="text/plain",
                     )
                 except Exception as e:
-                    st.error(f"خطا در اجرای تیم ایجنت‌ها: {e}")
+                    st.error(f"خطا در تولید محتوا: {e}")
