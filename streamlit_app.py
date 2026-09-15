@@ -80,25 +80,38 @@ def analyze_image(image_bytes: bytes, mime_type: str) -> str:
 
 # ==========================================
 # تولید محتوا با ۴ نقش پشت سر هم (بدون crewai، سبک و سریع)
+# هر بخش بلافاصله بعد از آماده شدن نمایش داده می‌شود تا ارتباط
+# با مرورگر طولانی و بی‌صدا نماند (که باعث قطع ارتباط می‌شود)
 # ==========================================
 def run_content_pipeline(raw_input: str) -> str:
+    status = st.empty()
+
+    status.info("در حال نوشتن بخش استوری...")
     story = ask_gemini(
         "متخصص تولید محتوای استوری اینستاگرام، یک ادمین حرفه‌ای که می‌داند چطور مخاطب را در استوری درگیر کند",
         "۳ ایده متنی کوتاه، صمیمی و تعاملی برای استوری بنویس (شامل نظرسنجی و کال‌تو‌اکشن).",
         raw_input,
     )
+    st.markdown("#### 📱 بخش استوری")
+    st.markdown(story)
 
+    status.info("در حال نوشتن بخش ریلز...")
     reels = ask_gemini(
         "سناریونویس ریلز اینستاگرام، کارگردان و کپی‌رایتر شبکه‌های اجتماعی",
         "یک سناریوی ۱۵ ثانیه‌ای برای ریلز بنویس. ۳ ثانیه اول باید قلاب (Hook) قوی داشته باشد، به همراه کپشن.",
         raw_input,
     )
+    st.markdown("#### 🎬 بخش ریلز")
+    st.markdown(reels)
 
+    status.info("در حال نوشتن بخش اسلایدی...")
     carousel = ask_gemini(
         "طراح پست‌های اسلایدی، استراتژیست محتوا",
         "این اطلاعات را به یک پست ۵ اسلایدی با تیترهای جذاب تبدیل کن.",
         raw_input,
     )
+    st.markdown("#### 🖼️ بخش اسلایدی")
+    st.markdown(carousel)
 
     combined_draft = (
         f"### بخش استوری\n{story}\n\n"
@@ -106,6 +119,7 @@ def run_content_pipeline(raw_input: str) -> str:
         f"### بخش اسلایدی\n{carousel}\n"
     )
 
+    status.info("در حال بازبینی نهایی و تمیزکاری متن...")
     final_result = ask_gemini(
         "مدیر کنترل کیفیت و سردبیر سخت‌گیر، وظیفه‌ات تحویل یک خروجی بی‌نقص است",
         (
@@ -115,6 +129,7 @@ def run_content_pipeline(raw_input: str) -> str:
         ),
         combined_draft,
     )
+    status.empty()
 
     return final_result
 
